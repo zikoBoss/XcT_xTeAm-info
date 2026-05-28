@@ -77,7 +77,9 @@ def decode_protobuf(encrypted_bytes, proto_class):
         return MessageToDict(proto_obj, preserving_proto_field_name=True)
 
 def get_garena_token(uid, password):
-    url = "https://ffmconnect.live.gop.garenanow.com/oauth/guest/token/grant"
+    url = "https://ffmconnect.garena.com/oauth/guest/token/grant"  # جرب هذا أولاً
+    # إذا لم يعمل، استخدم الرابط الأصلي (لأن JSON لم يزودنا ببديل)
+    # url = "https://ffmconnect.live.gop.garenanow.com/oauth/guest/token/grant"
     payload = {
         'uid': uid,
         'password': password,
@@ -105,7 +107,8 @@ def get_major_login(logintoken, openid):
         "platform": "4",
     }, MajorLogin_pb2.request())
 
-    url = "https://loginbp.ggblueshark.com/MajorLogin"
+    # الرابط الصحيح من JSON
+    url = "https://loginbp.ggpolarbear.com/MajorLogin"
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 13; A063 Build/TKQ1.221220.001)",
         'Connection': "Keep-Alive",
@@ -122,7 +125,6 @@ def get_major_login(logintoken, openid):
         return decode_protobuf(response.content, MajorLogin_pb2.response)
     except Exception:
         return False
-
 def fetch_profile(serverurl, authorization, uid):
     url = f"{serverurl}/GetPlayerPersonalShow"
     try:
