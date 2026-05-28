@@ -19,20 +19,9 @@ RELEASEVERSION = "OB53"
 MAIN_KEY = b'Yg&tc%DEuh6%Zc^8'
 MAIN_IV = b'6oyZDr22E3ychjM%'
 
-ACCOUNTS = {
-    "IND": {"uid": "4289924053", "password": "68C6CF86ED35E535144488384ED282C6C0E9597E9FE6A162DE03F6AF6D1B2B7C"},
-    "SG": {"uid": "3158350464", "password": "70EA041FCF79190E3D0A8F3CA95CAAE1F39782696CE9D85C2CCD525E28D223FC"},
-    "RU": {"uid": "3301239795", "password": "DD40EE772FCBD61409BB15033E3DE1B1C54EDA83B75DF0CDD24C34C7C8798475"},
-    "ID": {"uid": "3301269321", "password": "D11732AC9BBED0DED65D0FED7728CA8DFF408E174202ECF1939E328EA3E94356"},
-    "TW": {"uid": "3301329477", "password": "359FB179CD92C9C1A2A917293666B96972EF8A5FC43B5D9D61A2434DD3D7D0BC"},
-    "US": {"uid": "3301387397", "password": "BAC03CCF677F8772473A09870B6228ADFBC1F503BF59C8D05746DE451AD67128"},
-    "VN": {"uid": "3301447047", "password": "044714F5B9284F3661FB09E4E9833327488B45255EC9E0CCD953050E3DEF1F54"},
-    "TH": {"uid": "3301470613", "password": "39EFD9979BD6E9CCF6CBFF09F224C4B663E88B7093657CB3D4A6F3615DDE057A"},
-    "ME": {"uid": "3301535568", "password": "BEC9F99733AC7B1FB139DB3803F90A7E78757B0BE395E0A6FE3A520AF77E0517"},
-    "PK": {"uid": "3301828218", "password": "3A0E972E57E9EDC39DC4830E3D486DBFB5DA7C52A4E8B0B8F3F9DC4450899571"},
-    "CIS": {"uid": "3309128798", "password": "412F68B618A8FAEDCCE289121AC4695C0046D2E45DB07EE512B4B3516DDA8B0F"},
-    "BR": {"uid": "3158668455", "password": "44296D19343151B25DE68286BDC565904A0DA5A5CC5E96B7A7ADBE7C11E07933"}
-}
+# الحساب الثابت لمنطقة الشرق الأوسط
+ME_UID = "4812753412"
+ME_PASSWORD = "492C6754CD1BB892C11548121956ADF254468453FA0A7A25FA6367F9DF926221"
 
 app = Flask(__name__)
 CORS(app)
@@ -46,13 +35,13 @@ def clean_stat_data(raw_data):
         cleaned = {}
         for k, v in raw_data.items():
             lower_k = str(k).lower()
-            if lower_k in ['accountid', 'matchmode', 'gamemode', 'gametype', 'account_id']:
+            if lower_k in['accountid', 'matchmode', 'gamemode', 'gametype', 'account_id']:
                 continue
             new_key = "".join([" " + c if c.isupper() else c for c in str(k)]).title().strip()
             cleaned[new_key] = clean_stat_data(v)
         return cleaned
     elif isinstance(raw_data, list):
-        return [clean_stat_data(i) for i in raw_data]
+        return[clean_stat_data(i) for i in raw_data]
     else:
         if isinstance(raw_data, float):
             return round(raw_data, 4)
@@ -76,11 +65,12 @@ def decode_protobuf(encrypted_bytes, proto_class):
         proto_obj.ParseFromString(encrypted_bytes)
         return MessageToDict(proto_obj, preserving_proto_field_name=True)
 
-def get_garena_token(uid, password):
-    url = "https://ffmconnect.garena.com/oauth/guest/token/grant"
+def get_garena_token():
+    """تسجيل الدخول كضيف باستخدام حساب ME الثابت"""
+    url = "https://ffmconnect.live.gop.garenanow.com/oauth/guest/token/grant"
     payload = {
-        'uid': uid,
-        'password': password,
+        'uid': ME_UID,
+        'password': ME_PASSWORD,
         'response_type': "token",
         'client_type': "2",
         'client_secret': "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3",
@@ -105,7 +95,8 @@ def get_major_login(logintoken, openid):
         "platform": "4",
     }, MajorLogin_pb2.request())
 
-    url = "https://loginbp.ggpolarbear.com/MajorLogin"
+    # تأكد من أن هذا الرابط صحيح لإصدار OB53
+    url = "https://loginbp.ggpolarbear.com/MajorLogin"  # قد تحتاج لتحديثه كما ناقشنا سابقاً
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 13; A063 Build/TKQ1.221220.001)",
         'Connection': "Keep-Alive",
@@ -124,6 +115,7 @@ def get_major_login(logintoken, openid):
         return False
 
 def fetch_profile(serverurl, authorization, uid):
+    # ... (نفس الكود السابق دون تغيير)
     url = f"{serverurl}/GetPlayerPersonalShow"
     try:
         request_proto = data_pb2.request()
@@ -169,7 +161,7 @@ def fetch_profile(serverurl, authorization, uid):
             "level": basic_info.get("level", 0)
         }
 
-    except Exception:
+    except Exception as e:
         return {
             "nickname": "Error",
             "uid": str(uid),
@@ -179,6 +171,7 @@ def fetch_profile(serverurl, authorization, uid):
         }
 
 def get_player_stats(authorization, serverurl, mode, uid, match_type="CAREER"):
+    # ... (نفس الكود السابق دون تغيير)
     try:
         uid = int(uid)
         mode = mode.lower()
@@ -222,27 +215,18 @@ def get_player_stats(authorization, serverurl, mode, uid, match_type="CAREER"):
 
 def fetch_stat_safe(token, url, uid, mode, mtype):
     try:
-        return get_player_stats(token, url, uid, mode, mtype)
+        return get_player_stats(token, url, mode, uid, mtype)
     except:
         return {}
 
-# مسار رئيسي للاختبار
-@app.route('/')
-def home():
-    return {
-        "status": "alive",
-        "message": "API is running",
-        "endpoint": "/info?uid=...&server=...&mode=br&type=ranked"
-    }
-
-@app.route('/info', methods=['GET'])
+@app.route('/stats', methods=['GET'])
 def get_player_info_flexible():
     try:
-        server_region = request.args.get('server', 'IND').upper()
         uid = request.args.get('uid')
         raw_mode = request.args.get('mode')
         raw_type = request.args.get('type')
 
+        # معالجة الفلاتر كما هي
         req_mode = None
         if raw_mode:
             m = raw_mode.strip().lower()
@@ -260,17 +244,16 @@ def get_player_info_flexible():
                 req_type = 'NORMAL'
             elif t in ['ranked', 'rank']: 
                 req_type = 'RANKED'
-            elif t in ['career', 'lifetime']: 
+            elif t in['career', 'lifetime']: 
                 req_type = 'CAREER'
             else: 
                 req_type = t.upper()
 
-        if not uid:
+        if not uid: 
             return jsonify({"success": False, "error": "Missing UID"}), 400
-        if server_region not in ACCOUNTS:
-            return jsonify({"success": False, "error": "Server not configured"}), 400
 
-        g_token = get_garena_token(ACCOUNTS[server_region]['uid'], ACCOUNTS[server_region]['password'])
+        # ✅ لا نستخدم السيرفر من الطلب، نستخدم ME فقط
+        g_token = get_garena_token()
         if not g_token or 'access_token' not in g_token:
             return jsonify({"success": False, "error": "Garena Auth Failed"}), 401
             
@@ -281,7 +264,9 @@ def get_player_info_flexible():
         game_token = major_login["token"]
         server_url = major_login["serverUrl"]
 
-        all_stats_tasks = [
+        # ... باقي الكود لجلب الإحصائيات والبروفايل كما هو، مع استخدام uid المُدخل
+        # (نفس الكود الذي كان موجوداً، لا تغيير فيه)
+        all_stats_tasks =[
             ("br_career", "br", "CAREER"),
             ("br_ranked", "br", "RANKED"),
             ("br_casual", "br", "NORMAL"),
@@ -292,10 +277,8 @@ def get_player_info_flexible():
 
         stats_to_run = {}
         for key, task_mode, task_type in all_stats_tasks:
-            if req_mode and task_mode != req_mode:
-                continue
-            if req_type and task_type != req_type:
-                continue
+            if req_mode and task_mode != req_mode: continue
+            if req_type and task_type != req_type: continue
             stats_to_run[key] = (task_mode, task_type)
 
         results = {}
@@ -316,18 +299,12 @@ def get_player_info_flexible():
 
         stats_output = {}
 
-        if "br_ranked" in results:
-            stats_output["BR Ranked"] = clean_stat_data(results["br_ranked"])
-        if "br_casual" in results:
-            stats_output["BR Casual"] = clean_stat_data(results["br_casual"])
-        if "br_career" in results:
-            stats_output["BR Career"] = clean_stat_data(results["br_career"])
-        if "cs_ranked" in results:
-            stats_output["CS Ranked"] = clean_stat_data(results["cs_ranked"])
-        if "cs_casual" in results:
-            stats_output["CS Casual"] = clean_stat_data(results["cs_casual"])
-        if "cs_career" in results:
-            stats_output["CS Career"] = clean_stat_data(results["cs_career"])
+        if "br_ranked" in results: stats_output["BR Ranked"] = clean_stat_data(results["br_ranked"])
+        if "br_casual" in results: stats_output["BR Casual"] = clean_stat_data(results["br_casual"])
+        if "br_career" in results: stats_output["BR Career"] = clean_stat_data(results["br_career"])
+        if "cs_ranked" in results: stats_output["CS Ranked"] = clean_stat_data(results["cs_ranked"])
+        if "cs_casual" in results: stats_output["CS Casual"] = clean_stat_data(results["cs_casual"])
+        if "cs_career" in results: stats_output["CS Career"] = clean_stat_data(results["cs_career"])
 
         def recursive_sort(obj):
             if isinstance(obj, dict):
@@ -339,8 +316,7 @@ def get_player_info_flexible():
         stats_output = recursive_sort(stats_output)
 
         return jsonify({
-            "CREDITS": ["XcT-x-TeAm"],
-            "JOIN": ["@FPI_SX"],
+            "server": "ME",  # للإشارة فقط
             "filters_applied": {
                 "mode": req_mode.upper() if req_mode else "ALL MODES",
                 "type": req_type if req_type else "ALL TYPES"
@@ -354,7 +330,4 @@ def get_player_info_flexible():
         return jsonify({"success": False, "error": "Internal Server Error", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    # Render يعين المنفذ عبر متغير البيئة PORT
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000)
