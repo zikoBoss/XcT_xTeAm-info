@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import urllib3
 import requests
-import concurrent.futures
 import json
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
@@ -46,13 +45,13 @@ def clean_stat_data(raw_data):
         cleaned = {}
         for k, v in raw_data.items():
             lower_k = str(k).lower()
-            if lower_k in['accountid', 'matchmode', 'gamemode', 'gametype', 'account_id']:
+            if lower_k in ['accountid', 'matchmode', 'gamemode', 'gametype', 'account_id']:
                 continue
             new_key = "".join([" " + c if c.isupper() else c for c in str(k)]).title().strip()
             cleaned[new_key] = clean_stat_data(v)
         return cleaned
     elif isinstance(raw_data, list):
-        return[clean_stat_data(i) for i in raw_data]
+        return [clean_stat_data(i) for i in raw_data]
     else:
         if isinstance(raw_data, float):
             return round(raw_data, 4)
@@ -77,9 +76,7 @@ def decode_protobuf(encrypted_bytes, proto_class):
         return MessageToDict(proto_obj, preserving_proto_field_name=True)
 
 def get_garena_token(uid, password):
-    url = "https://ffmconnect.garena.com/oauth/guest/token/grant"  # جرب هذا أولاً
-    # إذا لم يعمل، استخدم الرابط الأصلي (لأن JSON لم يزودنا ببديل)
-    # url = "https://ffmconnect.live.gop.garenanow.com/oauth/guest/token/grant"
+    url = "https://ffmconnect.garena.com/oauth/guest/token/grant"
     payload = {
         'uid': uid,
         'password': password,
@@ -107,7 +104,6 @@ def get_major_login(logintoken, openid):
         "platform": "4",
     }, MajorLogin_pb2.request())
 
-    # الرابط الصحيح من JSON
     url = "https://loginbp.ggpolarbear.com/MajorLogin"
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 13; A063 Build/TKQ1.221220.001)",
@@ -125,6 +121,7 @@ def get_major_login(logintoken, openid):
         return decode_protobuf(response.content, MajorLogin_pb2.response)
     except Exception:
         return False
+
 def fetch_profile(serverurl, authorization, uid):
     url = f"{serverurl}/GetPlayerPersonalShow"
     try:
@@ -170,8 +167,7 @@ def fetch_profile(serverurl, authorization, uid):
             "exp": basic_info.get("exp", 0),
             "level": basic_info.get("level", 0)
         }
-
-    except Exception as e:
+    except Exception:
         return {
             "nickname": "Error",
             "uid": str(uid),
@@ -218,16 +214,10 @@ def get_player_stats(authorization, serverurl, mode, uid, match_type="CAREER"):
         response_obj = proto_module.response()
         response_obj.ParseFromString(response.content)
         return MessageToDict(response_obj, preserving_proto_field_name=True)
-        
     except Exception:
         return {}
 
-def fetch_stat_safe(token, url, uid, mode, mtype):
-    try:
-        return get_player_stats(token, url, uid, mode, mtype)
-    except:
-        return {}
-
+# من أجل Vercel، نستخدم التنفيذ التسلسلي بدلاً من ThreadPoolExecutor
 @app.route('/info', methods=['GET'])
 def get_player_info_flexible():
     try:
@@ -253,13 +243,15 @@ def get_player_info_flexible():
                 req_type = 'NORMAL'
             elif t in ['ranked', 'rank']: 
                 req_type = 'RANKED'
-            elif t in['career', 'lifetime']: 
+            elif t in ['career', 'lifetime']: 
                 req_type = 'CAREER'
             else: 
                 req_type = t.upper()
 
-        if not uid: return jsonify({"success": False, "error": "Missing UID"}), 400
-        if server_region not in ACCOUNTS: return jsonify({"success": False, "error": "Server not configured"}), 400
+        if not uid: 
+            return jsonify({"success": False, "error": "Missing UID"}), 400
+        if server_region not in ACCOUNTS: 
+            return jsonify({"success": False, "error": "Server not configured"}), 400
 
         g_token = get_garena_token(ACCOUNTS[server_region]['uid'], ACCOUNTS[server_region]['password'])
         if not g_token or 'access_token' not in g_token:
@@ -272,7 +264,8 @@ def get_player_info_flexible():
         game_token = major_login["token"]
         server_url = major_login["serverUrl"]
 
-        all_stats_tasks =[
+        # قائمة المهام المطلوبة
+        all_stats_tasks = [
             ("br_career", "br", "CAREER"),
             ("br_ranked", "br", "RANKED"),
             ("br_casual", "br", "NORMAL"),
@@ -281,36 +274,36 @@ def get_player_info_flexible():
             ("cs_casual", "cs", "NORMAL"),
         ]
 
+        # تصفية حسب mode/type
         stats_to_run = {}
         for key, task_mode, task_type in all_stats_tasks:
-            if req_mode and task_mode != req_mode: continue
-            if req_type and task_type != req_type: continue
+            if req_mode and task_mode != req_mode:
+                continue
+            if req_type and task_type != req_type:
+                continue
             stats_to_run[key] = (task_mode, task_type)
 
-        results = {}
+        # تنفيذ متسلسل (بدون ThreadPoolExecutor) ليتوافق مع Vercel
+        profile_result = fetch_profile(server_url, game_token, uid)
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(stats_to_run) + 2) as executor:
-            future_profile = executor.submit(fetch_profile, server_url, game_token, uid)
-            
-            future_stats = {
-                executor.submit(fetch_stat_safe, game_token, server_url, uid, m, t): key 
-                for key, (m, t) in stats_to_run.items()
-            }
-            
-            for future in concurrent.futures.as_completed(future_stats):
-                key = future_stats[future]
-                results[key] = future.result()
-            
-            profile_result = future_profile.result()
+        results = {}
+        for key, (m, t) in stats_to_run.items():
+            results[key] = fetch_stat_safe(game_token, server_url, uid, m, t)
 
         stats_output = {}
 
-        if "br_ranked" in results: stats_output["BR Ranked"] = clean_stat_data(results["br_ranked"])
-        if "br_casual" in results: stats_output["BR Casual"] = clean_stat_data(results["br_casual"])
-        if "br_career" in results: stats_output["BR Career"] = clean_stat_data(results["br_career"])
-        if "cs_ranked" in results: stats_output["CS Ranked"] = clean_stat_data(results["cs_ranked"])
-        if "cs_casual" in results: stats_output["CS Casual"] = clean_stat_data(results["cs_casual"])
-        if "cs_career" in results: stats_output["CS Career"] = clean_stat_data(results["cs_career"])
+        if "br_ranked" in results:
+            stats_output["BR Ranked"] = clean_stat_data(results["br_ranked"])
+        if "br_casual" in results:
+            stats_output["BR Casual"] = clean_stat_data(results["br_casual"])
+        if "br_career" in results:
+            stats_output["BR Career"] = clean_stat_data(results["br_career"])
+        if "cs_ranked" in results:
+            stats_output["CS Ranked"] = clean_stat_data(results["cs_ranked"])
+        if "cs_casual" in results:
+            stats_output["CS Casual"] = clean_stat_data(results["cs_casual"])
+        if "cs_career" in results:
+            stats_output["CS Career"] = clean_stat_data(results["cs_career"])
 
         def recursive_sort(obj):
             if isinstance(obj, dict):
@@ -321,10 +314,9 @@ def get_player_info_flexible():
 
         stats_output = recursive_sort(stats_output)
 
-        # 🔁 تغيير التوقيع إلى XcT-x-TeAm
         return jsonify({
-            "CREDITS": ["XcT-x-TeAm"],          # تم التعديل
-            "JOIN": ["@FPI_SX"],                          # يمكنك حذف هذا الحقل أو تعديله
+            "CREDITS": ["XcT-x-TeAm"],
+            "JOIN": ["@FPI_SX"],
             "filters_applied": {
                 "mode": req_mode.upper() if req_mode else "ALL MODES",
                 "type": req_type if req_type else "ALL TYPES"
@@ -336,6 +328,21 @@ def get_player_info_flexible():
 
     except Exception as e:
         return jsonify({"success": False, "error": "Internal Server Error", "message": str(e)}), 500
+
+# نقطة دخول للتحقق من أن السيرفر يعمل
+@app.route('/')
+def home():
+    return {
+        "status": "running",
+        "message": "Use /info?uid=...&server=...",
+        "example": "/info?uid=4289924053&server=IND"
+    }
+
+def fetch_stat_safe(token, url, uid, mode, mtype):
+    try:
+        return get_player_stats(token, url, mode, uid, mtype)
+    except Exception:
+        return {}
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
