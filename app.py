@@ -226,7 +226,7 @@ def fetch_stat_safe(token, url, uid, mode, mtype):
     except:
         return {}
 
-@app.route('/stats', methods=['GET'])
+@app.route('/info', methods=['GET'])
 def get_player_info_flexible():
     try:
         server_region = request.args.get('server', 'IND').upper()
