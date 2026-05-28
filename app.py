@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import urllib3
 import requests
+import concurrent.futures
 import json
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
@@ -167,6 +168,7 @@ def fetch_profile(serverurl, authorization, uid):
             "exp": basic_info.get("exp", 0),
             "level": basic_info.get("level", 0)
         }
+
     except Exception:
         return {
             "nickname": "Error",
@@ -214,10 +216,25 @@ def get_player_stats(authorization, serverurl, mode, uid, match_type="CAREER"):
         response_obj = proto_module.response()
         response_obj.ParseFromString(response.content)
         return MessageToDict(response_obj, preserving_proto_field_name=True)
+        
     except Exception:
         return {}
 
-# من أجل Vercel، نستخدم التنفيذ التسلسلي بدلاً من ThreadPoolExecutor
+def fetch_stat_safe(token, url, uid, mode, mtype):
+    try:
+        return get_player_stats(token, url, uid, mode, mtype)
+    except:
+        return {}
+
+# مسار رئيسي للاختبار
+@app.route('/')
+def home():
+    return {
+        "status": "alive",
+        "message": "API is running",
+        "endpoint": "/info?uid=...&server=...&mode=br&type=ranked"
+    }
+
 @app.route('/info', methods=['GET'])
 def get_player_info_flexible():
     try:
@@ -248,9 +265,9 @@ def get_player_info_flexible():
             else: 
                 req_type = t.upper()
 
-        if not uid: 
+        if not uid:
             return jsonify({"success": False, "error": "Missing UID"}), 400
-        if server_region not in ACCOUNTS: 
+        if server_region not in ACCOUNTS:
             return jsonify({"success": False, "error": "Server not configured"}), 400
 
         g_token = get_garena_token(ACCOUNTS[server_region]['uid'], ACCOUNTS[server_region]['password'])
@@ -264,7 +281,6 @@ def get_player_info_flexible():
         game_token = major_login["token"]
         server_url = major_login["serverUrl"]
 
-        # قائمة المهام المطلوبة
         all_stats_tasks = [
             ("br_career", "br", "CAREER"),
             ("br_ranked", "br", "RANKED"),
@@ -274,7 +290,6 @@ def get_player_info_flexible():
             ("cs_casual", "cs", "NORMAL"),
         ]
 
-        # تصفية حسب mode/type
         stats_to_run = {}
         for key, task_mode, task_type in all_stats_tasks:
             if req_mode and task_mode != req_mode:
@@ -283,12 +298,21 @@ def get_player_info_flexible():
                 continue
             stats_to_run[key] = (task_mode, task_type)
 
-        # تنفيذ متسلسل (بدون ThreadPoolExecutor) ليتوافق مع Vercel
-        profile_result = fetch_profile(server_url, game_token, uid)
-        
         results = {}
-        for key, (m, t) in stats_to_run.items():
-            results[key] = fetch_stat_safe(game_token, server_url, uid, m, t)
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(stats_to_run) + 2) as executor:
+            future_profile = executor.submit(fetch_profile, server_url, game_token, uid)
+            
+            future_stats = {
+                executor.submit(fetch_stat_safe, game_token, server_url, uid, m, t): key 
+                for key, (m, t) in stats_to_run.items()
+            }
+            
+            for future in concurrent.futures.as_completed(future_stats):
+                key = future_stats[future]
+                results[key] = future.result()
+            
+            profile_result = future_profile.result()
 
         stats_output = {}
 
@@ -329,20 +353,8 @@ def get_player_info_flexible():
     except Exception as e:
         return jsonify({"success": False, "error": "Internal Server Error", "message": str(e)}), 500
 
-# نقطة دخول للتحقق من أن السيرفر يعمل
-@app.route('/')
-def home():
-    return {
-        "status": "running",
-        "message": "Use /info?uid=...&server=...",
-        "example": "/info?uid=4289924053&server=IND"
-    }
-
-def fetch_stat_safe(token, url, uid, mode, mtype):
-    try:
-        return get_player_stats(token, url, mode, uid, mtype)
-    except Exception:
-        return {}
-
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Render يعين المنفذ عبر متغير البيئة PORT
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
