@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+smoke_test.py
+xAyOuB_token_cache.pkl
+xAyOuB_request_cache.pkl
+.env
+.env.*
+.git
+.gitignore

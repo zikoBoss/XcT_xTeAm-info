@@ -1,2 +1,6 @@
 flask
-requests
+flask-cors
+httpx
+cachetools
+protobuf==6.30.0
+pycryptodome
